@@ -1,4 +1,4 @@
-Checks all the boxes so that every single icon is displayed in your WIndows 11 system tray, and not hidden in the "^" menu. 
+Checks all the boxes so that every single icon is displayed in your Windows 11 system tray, and not hidden in the "^" menu. 
 
 Requires .NET v8 to be installed.
 
