@@ -1,90 +1,99 @@
-﻿using Microsoft.Win32; // Provides access to the Windows Registry classes (Registry, RegistryKey, etc.)
-using System;          // Basic .NET types like Exception, Console, etc.
+﻿using System;
+using Microsoft.Win32;
+using System.IO;
 
-class Program
+public class RegistryIconManager
 {
-    static int Main(string[] args)
+    public static int Main()
     {
-        // This is the per-user registry path where Windows stores tray icon visibility settings.
-        // "HKCU" (HKEY_CURRENT_USER) means these settings apply only to the currently logged-in user.
-        const string subkeyPath = @"Control Panel\NotifyIconSettings";
+        string subkeyPath = @"Control Panel\NotifyIconSettings";  // Target registry path
 
-        // Track how many entries we actually changed from something else to "promoted".
-        int changed = 0;
+        int changed = 0;   // Count of successful updates
+        int errors = 0;    // Count of failures
 
-        // Track how many subkeys we failed to process due to permissions/corruption/races/etc.
-        int errors = 0;
+        // Full file path for logs in the same folder as the executable
+        string logFile = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "log.txt");
+
+        FileStream? logStream = null;
+        StreamWriter? logWriter = null;
 
         try
         {
-            // Open the NotifyIconSettings key under HKCU with write access (writable: true),
-            // because we intend to modify values inside its subkeys.
-            //
-            // Equivalent full path:
-            // HKEY_CURRENT_USER\Control Panel\NotifyIconSettings
-            using RegistryKey? root = Registry.CurrentUser.OpenSubKey(subkeyPath, writable: true);
+            // Open log file in append mode to avoid overwriting previous entries
+            logStream = new FileStream(logFile, FileMode.Append, FileAccess.Write);
+            logWriter = new StreamWriter(logStream);
 
-            // If Windows doesn't have this key (unexpected on a typical system), there's nothing to do.
-            if (root == null)
-            {
-                Console.Error.WriteLine($"Registry key not found: HKCU\\{subkeyPath}");
-                return 2; // Non-zero exit code indicates a "not found / nothing to do" condition.
-            }
+            // Start with a timestamp and initial status message
+            string startMsg = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Starting registry icon promotion process";
+            Console.WriteLine(startMsg);
+            logWriter.WriteLine(startMsg);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Failed to initialize logging: {ex.Message}");
+            return 1; // Return error code
+        }
 
-            // Each notification area icon entry is typically represented by a GUID-named subkey under NotifyIconSettings.
-            // We enumerate all subkeys so we can set each one to "promoted" (visible).
-            foreach (var name in root.GetSubKeyNames())
+        try
+        {
+            // Open the target registry key with write access
+            using (RegistryKey? root = Registry.CurrentUser.OpenSubKey(subkeyPath, true))
             {
-                try
+                if (root == null)
                 {
-                    // Open the specific subkey with write access.
-                    // Each subkey corresponds to one icon entry Windows knows about.
-                    using RegistryKey? k = root.OpenSubKey(name, writable: true);
+                    string msg = $"Registry key not found: HKCU\\{subkeyPath}";
+                    Console.Error.WriteLine(msg);
+                    logWriter?.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {msg}");
+                    return 2; // Key missing
+                }
 
-                    // If we couldn't open it (rare, but possible), skip it.
-                    if (k == null) continue;
-
-                    // Read the current value for "IsPromoted".
-                    // This DWORD typically controls whether the icon is "shown" (promoted) in the system tray area.
-                    object? current = k.GetValue("IsPromoted");
-
-                    // Convert to int if it is already stored as an integer.
-                    // If it isn't an int (missing, different type, etc.), we treat it as not being set to 1.
-                    int currentInt = (current is int i) ? i : -1;
-
-                    // Only write if it's not already promoted.
-                    // This avoids unnecessary registry writes.
-                    if (currentInt != 1)
+                foreach (string name in root.GetSubKeyNames())
+                {
+                    try
                     {
-                        // Write DWORD value 1 for "IsPromoted" to mark it as promoted/visible.
-                        k.SetValue("IsPromoted", 1, RegistryValueKind.DWord);
+                        using RegistryKey? subkey = root.OpenSubKey(name, true);
+                        if (subkey == null) continue;
 
-                        // Count it as a change.
-                        changed++;
+                        object? currentVal = subkey.GetValue("IsPromoted");
+                        int val = (currentVal is int i) ? i : -1;
+
+                        // If "IsPromoted" not set to 1, update it
+                        if (val != 1)
+                        {
+                            subkey.SetValue("IsPromoted", 1, RegistryValueKind.DWord);
+                            changed++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        errors++;
+                        Console.Error.WriteLine($"Failed on {name}: {ex.Message}");
+                        logWriter?.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] Failed on {name}: {ex.Message}");
                     }
                 }
-                catch (Exception ex)
-                {
-                    // If any individual subkey fails (locked, permissions, transient issue),
-                    // we count an error but keep going so one failure doesn't stop the entire run.
-                    errors++;
-                    Console.Error.WriteLine($"Failed on subkey {name}: {ex.Message}");
-                }
+
+                // Summary output
+                string summary = $"Done. Updated {changed} icon entries. Errors: {errors}.";
+                Console.WriteLine(summary);
+                logWriter?.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {summary}");
             }
         }
         catch (Exception ex)
         {
-            // If something more fundamental fails (e.g., registry access fails entirely),
-            // print the exception and return a different error code.
-            Console.Error.WriteLine(ex.ToString());
+            // Log and return on critical error
+            string err = $"Critical registry operation failed: {ex.Message}";
+            Console.Error.WriteLine(err);
+            logWriter?.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {err}");
             return 3;
         }
+        finally
+        {
+            logWriter?.Dispose();
+            logStream?.Close();
+        }
 
-        // Summarize what happened.
-        Console.WriteLine($"Done. Updated {changed} icon entries. Errors: {errors}.");
-
-        // Exit code 0 = success with no per-subkey errors.
-        // Exit code 1 = ran, but at least one subkey update failed.
+        // Final output to console only
+        Console.WriteLine("Finished.");
         return errors == 0 ? 0 : 1;
     }
 }
