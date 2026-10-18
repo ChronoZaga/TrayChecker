@@ -1,6 +1,6 @@
 Checks all the boxes so that every single icon is displayed in your Windows 11 system tray, and not hidden in the "^" menu. 
 
-Requires .NET v8 to be installed.
+No .NET install required - it's a single self-contained EXE.
 
 Just double click the EXE, it runs and exits without displaying anything itself.  But Windows 11 should now display all your tray icons.  This is a per user setting.
 

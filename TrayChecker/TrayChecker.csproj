@@ -9,6 +9,29 @@
     <FileVersion>1.2</FileVersion>
     <AssemblyVersion>1.2</AssemblyVersion>
     <ApplicationIcon>GreenCheckmark.ico</ApplicationIcon>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <DebugType>none</DebugType>
   </PropertyGroup>
+
+  <!-- Release builds: replace the build output with the native AOT exe only (no dll/json) -->
+  <Target Name="AotOnlyReleaseOutput" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And '$(_IsPublishing)' != 'true'">
+    <PropertyGroup>
+      <_AotStageDir>$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)aot'))</_AotStageDir>
+      <!-- DOTNET_HOST_PATH is only set by the dotnet CLI; Visual Studio's MSBuild.exe leaves it empty -->
+      <_AotDotnet>$(DOTNET_HOST_PATH)</_AotDotnet>
+      <_AotDotnet Condition="'$(_AotDotnet)' == '' And Exists('$(NetCoreRoot)dotnet.exe')">$(NetCoreRoot)dotnet.exe</_AotDotnet>
+      <_AotDotnet Condition="'$(_AotDotnet)' == ''">dotnet</_AotDotnet>
+    </PropertyGroup>
+    <Exec Command="&quot;$(_AotDotnet)&quot; publish &quot;$(MSBuildProjectFullPath)&quot; -c Release -nologo -p:PublishDir=&quot;$(_AotStageDir)&quot;"
+          EnvironmentVariables="PATH=$([MSBuild]::Escape('$(PATH);$(MSBuildProgramFiles32)\Microsoft Visual Studio\Installer'))" />
+    <ItemGroup>
+      <_ReleaseOutFiles Include="$(OutDir)**\*" />
+    </ItemGroup>
+    <Delete Files="@(_ReleaseOutFiles)" />
+    <RemoveDir Directories="$(OutDir)native" />
+    <Copy SourceFiles="$(_AotStageDir)\$(TargetName).exe" DestinationFolder="$(OutDir)" />
+  </Target>
 
 </Project>
